@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>FC Europa Landing Page</title>
+    <style>
+        body { padding: 20px; font-family: Arial, sans-serif; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; }
+        .button-container { display: flex; justify-content: space-around; margin-bottom: 20px; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        .tables-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        table { width: 250px; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+        tr.europa { background-color: #e0f7fa; font-weight: bold; }
+    </style>
+    <link rel="manifest" href="/manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+</script>
+</head>
+<body>
+    <div class="container">
+        <h1>FC Europa Leagues</h1>
+        <div class="button-container">
+            <button onclick="window.location.href='fc-europa-pl.html'">FC Europa PL</button>
+            <button onclick="window.location.href='fc-europa-de.html'">FC Europa DE</button>
+            <button onclick="window.location.href='fc-europa-cz.html'">FC Europa CZ</button>
+        </div>
+        <div class="tables-container">
+            <div>
+                <h3>PL League Table</h3>
+                <table id="pl-table">
+                    <thead>
+                        <tr><th>Rank</th><th>Team</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="pl-table-body"></tbody>
+                </table>
+            </div>
+            <div>
+                <h3>DE League Table</h3>
+                <table id="de-table">
+                    <thead>
+                        <tr><th>Rank</th><th>Team</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="de-table-body"></tbody>
+                </table>
+            </div>
+            <div>
+                <h3>CZ League Table</h3>
+                <table id="cz-table">
+                    <thead>
+                        <tr><th>Rank</th><th>Team</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="cz-table-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function loadTableData(league, tableBodyId) {
+            let state = localStorage.getItem(`activityTrackerState_${league}`);
+            let leagueTable = state ? JSON.parse(state).leagueTable : [{ team: `FC Europa ${league}`, points: 0 }];
+            leagueTable.sort((a, b) => b.points - a.points);
+            let tableBody = document.getElementById(tableBodyId);
+            tableBody.innerHTML = "";
+            leagueTable.forEach((team, index) => {
+                let tr = document.createElement("tr");
+                tr.className = team.team === `FC Europa ${league}` ? "europa" : "";
+                tr.innerHTML = `<td>${index + 1}</td><td>${team.team}</td><td>${team.points}</td>`;
+                tableBody.appendChild(tr);
+            });
+        }
+
+        window.onload = function() {
+            loadTableData("PL", "pl-table-body");
+            loadTableData("DE", "de-table-body");
+            loadTableData("CZ", "cz-table-body");
+        };
+    </script>
+</body>
+</html>

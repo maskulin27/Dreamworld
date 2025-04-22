@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>FC Europa PL</title>
+  <style>
+    body { display: flex; }
+    .left-side { flex: 1; padding: 10px; }
+    .right-side { width: 600px; padding: 10px; border-left: 2px solid #ccc; display: flex; flex-direction: column; }
+    .squad-table-container { display: flex; flex: 1; gap: 10px; }
+    .squad-container, .table-container { flex: 1; }
+    .activity-container { margin: 10px 0; }
+    button { margin-right: 10px; }
+    .countdown { color: #555; margin-left: 10px; }
+    .squad, .bench, .history { list-style: none; padding: 0; }
+    .squad li, .bench li, .history li { margin: 5px 0; }
+    .next-match, .add-result, .match-history, .previous-squads { margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+    tr.europa { background-color: #e0f7fa; font-weight: bold; }
+    .points-adjuster { display: inline-flex; align-items: center; }
+    .points-adjuster button { padding: 2px 5px; margin: 0 2px; }
+    .deduct-section { margin-top: 10px; }
+    .activity-container.urgent { background-color: #ffe6e6; } /* Red */
+    .activity-container.warning { background-color: #fff3e6; } /* Yellow */
+    .activity-container.safe { background-color: #e6ffe6; } /* Green */
+    .league-header { display: flex; justify-content: space-between; align-items: center; }
+    .league-overview { margin-bottom: 20px; }
+    ..league-overview { margin-bottom: 20px; max-height: 300px; overflow-y: auto; } /* Scroll if >10 leagues */
+.league-overview ul { list-style: none; padding: 0; margin: 0; }
+.league-overview li { padding: 8px; margin: 1px 0; background-color: #f0f0f0; font-size: 14px; }
+.league-overview li.current { background-color: #b3e5fc; font-weight: bold; }
+    .league-overview li.current { background-color: #b3e5fc; font-weight: bold; } /* Highlight current league */
+  </style>
+  <link rel="manifest" href="/manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+</script>
+</head>
+<body>
+  <div class="left-side">
+    <h1>FC Europa PL Tracker</h1>
+    <button onclick="addNewActivity()">+</button>
+    <button onclick="window.location.href='index.html'">Back to Landing</button>
+    <div id="activities"></div>
+    <div class="deduct-section">
+      <h3>Deduct Time</h3>
+      <select id="deduct-activity"></select>
+      <input type="number" id="deduct-minutes" min="1" placeholder="Hours" style="width: 60px;">
+      <button onclick="deductTime()">Deduct</button>
+    </div>
+  </div>
+  <div class="right-side">
+  <div class="league-header">
+    <h2 id="current-league">League 1</h2>
+    <button onclick="addLeague()">Add League</button>
+  </div>
+  <div class="league-overview">
+    <h3>League Hierarchy</h3>
+    <ul id="league-list"></ul>
+  </div>
+  <div class="next-match" id="next-match">
+    <h2>Next Match</h2>
+    <p id="match-details">-</p>
+    <select id="team1"></select> vs <select id="team2"></select>
+    <button onclick="setNextMatch()">Set Next Match</button>
+    <button onclick="playMatch()">Play Match</button>
+  </div>
+  <div class="add-result">
+    <h3>Add Result</h3>
+    <select id="result-team1"></select> vs <select id="result-team2"></select>
+    <input type="number" id="goals1" min="0" placeholder="Goals" style="width: 50px;">
+    <input type="number" id="goals2" min="0" placeholder="Goals" style="width: 50px;">
+    <button onclick="addResult()">Add Result</button>
+  </div>
+  <div class="squad-table-container">
+    <div class="squad-container">
+      <h2>Squad</h2>
+      <ul class="squad" id="squad-list">
+        <li>1. Goalkeeper: -</li>
+        <li>2. Right Full Back: -</li>
+        <li>3. Left Full Back: -</li>
+        <li>4. Center Back: -</li>
+        <li>5. Center Back: -</li>
+        <li>6. Defensive Midfielder: -</li>
+        <li>7. Right Midfielder: -</li>
+        <li>8. Central Midfielder: -</li>
+        <li>9. Left Midfielder: -</li>
+        <li>10. Attacking Midfielder: -</li>
+        <li>11. Striker: -</li>
+      </ul>
+      <h3>Bench</h3>
+      <ul class="bench" id="bench-list"></ul>
+    </div>
+    <div class="table-container">
+      <h3>League Table</h3>
+      <table id="league-table">
+        <thead>
+          <tr><th>Rank</th><th>Team</th><th>Points</th></tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+      <button onclick="addTeamToTable()">Add Team</button>
+    </div>
+  </div>
+  <div class="match-history">
+    <h3>Match History</h3>
+    <ul class="history" id="match-history-list"></ul>
+  </div>
+  <div class="previous-squads">
+    <h3>Previous Squads</h3>
+    <ul class="history" id="previous-squads-list"></ul>
+  </div>
+</div>
+  </div>
+   <script>
+    let activities = [];
+    let squadPositions = [
+      "Goalkeeper", "Right Full Back", "Left Full Back", "Center Back", "Center Back",
+      "Defensive Midfielder", "Right Midfielder", "Central Midfielder", "Left Midfielder",
+      "Attacking Midfielder", "Striker"
+    ];
+    let squad = Array(11).fill("-");
+    let bench = [];
+    const MAX_SCORE = 100;
+    let nextMatch = { matchDay: 1, team1: "", team2: "", date: null };
+    let leagueTable = [{ team: "FC Europa PL", points: 0 }];
+    let matchHistory = [];
+    let previousSquads = [];
+    let currentLeague = 1; // Start at lowest level
+let leagues = [
+  { name: "League 1", minQuality: 1 }
+]; // Default single league
+
+   window.onload = function() {
+      loadState();
+      updateActivities();
+      updateSquadAndBench();
+      renderNextMatch();
+      renderLeagueTable();
+      populateTeamDropdowns();
+      renderMatchHistory();
+      renderPreviousSquads();
+      populateDeductDropdown();
+      renderLeagueHierarchy(); // Add this
+    };
+
+    function saveState() {
+      let state = {
+        activities: activities.map(a => ({
+          name: a.name,
+          count: a.count,
+          validityHours: a.validityHours,
+          lastPerformed: a.lastPerformed,
+          expiration: a.expiration,
+          squadPosition: a.squadPosition,
+          deductedHours: a.deductedHours || 0,
+          quality: a.quality
+        })),
+        squad: squad,
+        nextMatch: nextMatch,
+        leagueTable: leagueTable,
+        matchHistory: matchHistory,
+        previousSquads: previousSquads,
+        currentLeague: currentLeague,
+        leagues: leagues
+      };
+      localStorage.setItem("activityTrackerState_PL", JSON.stringify(state));
+      console.log("Saved state:", state);
+    }
+
+    function loadState() {
+      let savedState = localStorage.getItem("activityTrackerState_PL");
+      if (savedState) {
+        let state = JSON.parse(savedState);
+        squad = state.squad || Array(11).fill("-");
+        nextMatch = state.nextMatch || { matchDay: 1, team1: "", team2: "", date: null };
+        leagueTable = state.leagueTable || [{ team: "FC Europa PL", points: 0 }];
+        matchHistory = state.matchHistory || [];
+        previousSquads = state.previousSquads || [];
+        currentLeague = state.currentLeague || 1;
+        leagues = state.leagues || [{ name: "League 1", minQuality: 1 }];
+        document.getElementById("current-league").innerText = leagues[currentLeague - 1].name;
+        activities = [];
+
+        (state.activities || []).forEach(savedActivity => {
+          let container = document.createElement("div");
+          container.className = "activity-container";
+
+          let button = document.createElement("button");
+          button.innerText = savedActivity.name;
+
+          let counter = document.createElement("span");
+          counter.innerText = " " + (savedActivity.count || 0);
+
+          let qualityButton = document.createElement("button");
+          qualityButton.innerText = `Q${savedActivity.quality || 1}`;
+          qualityButton.style.marginLeft = "10px";
+
+          let startButton = document.createElement("button");
+          startButton.innerText = "Start";
+          startButton.style.marginLeft = "10px";
+
+          let pauseButton = document.createElement("button");
+          pauseButton.innerText = "Pause";
+          pauseButton.style.marginLeft = "10px";
+
+          let endButton = document.createElement("button");
+          endButton.innerText = "End";
+          endButton.style.marginLeft = "10px";
+
+          let inputField = document.createElement("input");
+          inputField.type = "text";
+          inputField.placeholder = "What did you do?";
+          inputField.style.marginLeft = "10px";
+          inputField.style.width = "100px";
+
+          let countdown = document.createElement("span");
+          countdown.className = "countdown";
+
+          let eraseButton = document.createElement("button");
+          eraseButton.innerText = "Erase";
+          eraseButton.style.marginLeft = "10px";
+
+          let activity = {
+            name: savedActivity.name || "Unnamed",
+            count: savedActivity.count || 0,
+            validityHours: savedActivity.validityHours || 24,
+            lastPerformed: savedActivity.lastPerformed || new Date().getTime(),
+            expiration: savedActivity.expiration || (new Date().getTime() + 24 * 60 * 60 * 1000),
+            squadPosition: savedActivity.squadPosition !== undefined ? savedActivity.squadPosition : -1,
+            deductedHours: savedActivity.deductedHours || 0,
+            quality: savedActivity.quality || 1,
+            status: savedActivity.status || "stopped",
+            startTime: savedActivity.startTime || null,
+            totalTime: savedActivity.totalTime || 0,
+            sessionTime: savedActivity.sessionTime || 0,
+            container: container,
+            counterElement: counter,
+            countdownElement: countdown,
+            qualityElement: qualityButton,
+            inputElement: inputField
+          };
+
+          if (activity.status === "running") {
+            startButton.disabled = true;
+            pauseButton.disabled = false;
+            endButton.disabled = false;
+            inputField.disabled = true;
+          } else if (activity.status === "paused") {
+            startButton.disabled = false;
+            pauseButton.disabled = true;
+            endButton.disabled = false;
+            inputField.disabled = false;
+          } else {
+            startButton.disabled = false;
+            pauseButton.disabled = true;
+            endButton.disabled = true;
+            inputField.disabled = true;
+          }
+
+          button.onclick = function() {
+            if (activity.count < MAX_SCORE) {
+              activity.count += 1;
+              activity.lastPerformed = new Date().getTime();
+              activity.expiration = activity.lastPerformed + (activity.validityHours * 60 * 60 * 1000);
+              activity.sessionTime = 0;
+              counter.innerText = " " + activity.count;
+              updateActivities();
+              updateSquadAndBench();
+              saveState();
+            }
+          };
+
+          startButton.onclick = function() {
+            activity.status = "running";
+            activity.startTime = activity.startTime || new Date().getTime();
+            startButton.disabled = true;
+            pauseButton.disabled = false;
+            endButton.disabled = false;
+            inputField.disabled = true;
+            saveState();
+          };
+
+          pauseButton.onclick = function() {
+            if (activity.status === "running") {
+              activity.status = "paused";
+              activity.sessionTime += new Date().getTime() - activity.startTime;
+              activity.totalTime += new Date().getTime() - activity.startTime;
+              startButton.disabled = false;
+              pauseButton.disabled = true;
+              endButton.disabled = false;
+              inputField.disabled = false;
+            } else if (activity.status === "paused") {
+              activity.status = "running";
+              activity.startTime = new Date().getTime();
+              startButton.disabled = true;
+              pauseButton.disabled = false;
+              endButton.disabled = false;
+              inputField.disabled = true;
+            }
+            saveState();
+          };
+
+          endButton.onclick = function() {
+            activity.status = "stopped";
+            if (activity.startTime) {
+              activity.totalTime += new Date().getTime() - activity.startTime;
+              activity.sessionTime += new Date().getTime() - activity.startTime;
+              activity.startTime = null;
+            }
+            startButton.disabled = false;
+            pauseButton.disabled = true;
+            endButton.disabled = true;
+            inputField.disabled = false;
+            if (inputField.value) {
+              console.log(`${activity.name}: ${inputField.value}`);
+              inputField.value = "";
+            }
+            updateSquadAndBench();
+            saveState();
+          };
+
+          qualityButton.onclick = function() {
+            let newQuality = parseInt(prompt(`Set new quality for ${activity.name} (current: ${activity.quality}):`));
+            if (!isNaN(newQuality) && newQuality >= 1) {
+              activity.quality = newQuality;
+              qualityButton.innerText = `Q${newQuality}`;
+              updateSquadAndBench();
+              saveState();
+            }
+          };
+
+          eraseButton.onclick = function() {
+            eraseActivity(activities.indexOf(activity));
+          };
+
+          container.appendChild(button);
+          container.appendChild(counter);
+          container.appendChild(qualityButton);
+          container.appendChild(startButton);
+          container.appendChild(pauseButton);
+          container.appendChild(endButton);
+          container.appendChild(inputField);
+          container.appendChild(countdown);
+          container.appendChild(eraseButton);
+          document.getElementById("activities").appendChild(container);
+
+          activities.push(activity);
+        });
+        updateActivities();
+        updateSquadAndBench();
+        console.log("Loaded state:", state);
+      } else {
+        leagueTable = [{ team: "FC Europa PL", points: 0 }];
+        console.log("No saved state, using default");
+      }
+      renderLeagueHierarchy();
+    }
+
+    function addNewActivity() {
+      let activityName = prompt("Enter the name of the activity:");
+      if (!activityName) return;
+
+      let validityDays = parseInt(prompt("Enter validity period (days):"));
+      if (isNaN(validityDays) || validityDays <= 0) {
+        alert("Please enter a valid number of days.");
+        return;
+      }
+
+      let quality = parseInt(prompt("Enter quality level (1 = easy, higher = harder):")) || 1;
+      if (isNaN(quality) || quality < 1) quality = 1;
+
+      let validityHours = validityDays * 24;
+      let container = document.createElement("div");
+      container.className = "activity-container";
+
+      let button = document.createElement("button");
+      button.innerText = activityName;
+
+      let counter = document.createElement("span");
+      counter.innerText = " 0";
+
+      let qualityButton = document.createElement("button");
+      qualityButton.innerText = `Q${quality}`;
+      qualityButton.style.marginLeft = "10px";
+
+      let startButton = document.createElement("button");
+      startButton.innerText = "Start";
+      startButton.style.marginLeft = "10px";
+
+      let pauseButton = document.createElement("button");
+      pauseButton.innerText = "Pause";
+      pauseButton.style.marginLeft = "10px";
+      pauseButton.disabled = true;
+
+      let endButton = document.createElement("button");
+      endButton.innerText = "End";
+      endButton.style.marginLeft = "10px";
+      endButton.disabled = true;
+
+      let inputField = document.createElement("input");
+      inputField.type = "text";
+      inputField.placeholder = "What did you do?";
+      inputField.style.marginLeft = "10px";
+      inputField.style.width = "100px";
+      inputField.disabled = true;
+
+      let countdown = document.createElement("span");
+      countdown.className = "countdown";
+
+      let eraseButton = document.createElement("button");
+      eraseButton.innerText = "Erase";
+      eraseButton.style.marginLeft = "10px";
+
+      let activity = {
+        name: activityName,
+        count: 0,
+        validityHours: validityHours,
+        lastPerformed: new Date().getTime(),
+        expiration: new Date().getTime() + (validityHours * 60 * 60 * 1000),
+        squadPosition: -1,
+        deductedHours: 0,
+        quality: quality,
+        status: "stopped",
+        startTime: null,
+        totalTime: 0,
+        sessionTime: 0, // Time since last point
+        container: container,
+        counterElement: counter,
+        countdownElement: countdown,
+        qualityElement: qualityButton,
+        inputElement: inputField
+      };
+
+      button.onclick = function() {
+        if (activity.count < MAX_SCORE) {
+          activity.count += 1;
+          activity.lastPerformed = new Date().getTime();
+          activity.expiration = activity.lastPerformed + (activity.validityHours * 60 * 60 * 1000);
+          activity.sessionTime = 0; // Reset timer on manual click
+          counter.innerText = " " + activity.count;
+          updateActivities();
+          updateSquadAndBench();
+          saveState();
+        }
+      };
+
+      startButton.onclick = function() {
+        activity.status = "running";
+        activity.startTime = activity.startTime || new Date().getTime();
+        startButton.disabled = true;
+        pauseButton.disabled = false;
+        endButton.disabled = false;
+        inputField.disabled = true;
+        saveState();
+      };
+
+      pauseButton.onclick = function() {
+        if (activity.status === "running") {
+          activity.status = "paused";
+          activity.sessionTime += new Date().getTime() - activity.startTime;
+          activity.totalTime += new Date().getTime() - activity.startTime;
+          startButton.disabled = false;
+          pauseButton.disabled = true;
+          endButton.disabled = false;
+          inputField.disabled = false;
+        } else if (activity.status === "paused") {
+          activity.status = "running";
+          activity.startTime = new Date().getTime();
+          startButton.disabled = true;
+          pauseButton.disabled = false;
+          endButton.disabled = false;
+          inputField.disabled = true;
+        }
+        saveState();
+      };
+
+      endButton.onclick = function() {
+        activity.status = "stopped";
+        if (activity.startTime) {
+          activity.totalTime += new Date().getTime() - activity.startTime;
+          activity.sessionTime += new Date().getTime() - activity.startTime;
+          activity.startTime = null;
+        }
+        startButton.disabled = false;
+        pauseButton.disabled = true;
+        endButton.disabled = true;
+        inputField.disabled = false;
+        if (inputField.value) {
+          console.log(`${activity.name}: ${inputField.value}`);
+          inputField.value = "";
+        }
+        updateSquadAndBench();
+        saveState();
+      };
+
+      qualityButton.onclick = function() {
+        let newQuality = parseInt(prompt(`Set new quality for ${activity.name} (current: ${activity.quality}):`));
+        if (!isNaN(newQuality) && newQuality >= 1) {
+          activity.quality = newQuality;
+          qualityButton.innerText = `Q${newQuality}`;
+          updateSquadAndBench();
+          saveState();
+        }
+      };
+
+      eraseButton.onclick = function() {
+        eraseActivity(activities.indexOf(activity));
+      };
+
+      container.appendChild(button);
+      container.appendChild(counter);
+      container.appendChild(qualityButton);
+      container.appendChild(startButton);
+      container.appendChild(pauseButton);
+      container.appendChild(endButton);
+      container.appendChild(inputField);
+      container.appendChild(countdown);
+      container.appendChild(eraseButton);
+      document.getElementById("activities").appendChild(container);
+
+      activities.push(activity);
+      updateSquadAndBench();
+      populateDeductDropdown();
+      saveState();
+    }
+    function updateActivities() {
+      let currentTime = new Date().getTime();
+      const MINUTES_PER_POINT = 15; // 15 minutes = 1 point
+
+      activities.sort((a, b) => (a.expiration - currentTime) - (b.expiration - currentTime));
+      let activitiesDiv = document.getElementById("activities");
+      activitiesDiv.innerHTML = "";
+
+      activities.forEach(activity => {
+        let timeLeftMs = activity.expiration - currentTime;
+        let daysLeft = Math.floor(timeLeftMs / (24 * 60 * 60 * 1000));
+        let hoursLeft = Math.floor((timeLeftMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+        let minutesLeft = Math.floor((timeLeftMs % (60 * 60 * 1000)) / (60 * 1000));
+        daysLeft = Math.max(0, daysLeft);
+        hoursLeft = Math.max(0, hoursLeft);
+        minutesLeft = Math.max(0, minutesLeft);
+
+        let totalMs = activity.totalTime;
+        let sessionMs = activity.sessionTime;
+        if (activity.status === "running" && activity.startTime) {
+          let elapsed = currentTime - activity.startTime;
+          totalMs += elapsed;
+          sessionMs += elapsed;
+        }
+        let totalDays = Math.floor(totalMs / (24 * 60 * 60 * 1000));
+        let totalHours = Math.floor((totalMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+        let totalMinutes = Math.floor((totalMs % (60 * 60 * 1000)) / (60 * 1000));
+        let sessionMinutes = Math.floor(sessionMs / (60 * 1000));
+
+        // Auto-add point every 15 minutes
+        if (sessionMinutes >= MINUTES_PER_POINT && activity.count < MAX_SCORE) {
+          let pointsToAdd = Math.floor(sessionMinutes / MINUTES_PER_POINT);
+          activity.count += pointsToAdd;
+          activity.sessionTime = sessionMs - (pointsToAdd * MINUTES_PER_POINT * 60 * 1000); // Reset remainder
+          activity.lastPerformed = currentTime;
+          activity.expiration = currentTime + (activity.validityHours * 60 * 60 * 1000);
+          activity.counterElement.innerText = " " + activity.count;
+          updateSquadAndBench();
+          saveState();
+        }
+
+        let deduction = getDeductionRate(activity.count);
+        activity.countdownElement.innerText = ` (${daysLeft} days ${hoursLeft} hrs ${minutesLeft} min left, spent: ${totalDays}d ${totalHours}h ${totalMinutes}m, deduction: ${deduction}, validity: ${activity.validityHours} hrs, deducted: ${activity.deductedHours} hrs)`;
+
+        let totalHoursLeft = (daysLeft * 24) + hoursLeft;
+        if (totalHoursLeft < 1) {
+          activity.container.className = "activity-container urgent";
+        } else if (totalHoursLeft <= 12) {
+          activity.container.className = "activity-container warning";
+        } else {
+          activity.container.className = "activity-container safe";
+        }
+
+        if (timeLeftMs <= 0 && activity.count > 0) {
+          activity.count = Math.max(0, activity.count - deduction);
+          activity.lastPerformed = currentTime;
+          activity.expiration = currentTime + (activity.validityHours * 60 * 60 * 1000);
+          activity.counterElement.innerText = " " + activity.count;
+          updateSquadAndBench();
+          saveState();
+        }
+
+        activitiesDiv.appendChild(activity.container);
+      });
+    }
+
+    function getDeductionRate(count) {
+      if (count < 10) return 0;
+      return Math.floor(count / 10);
+    }
+
+    function populateTeamDropdowns() {
+      const team1Select = document.getElementById("team1");
+      const team2Select = document.getElementById("team2");
+      const resultTeam1Select = document.getElementById("result-team1");
+      const resultTeam2Select = document.getElementById("result-team2");
+
+      [team1Select, team2Select, resultTeam1Select, resultTeam2Select].forEach(select => {
+        select.innerHTML = "";
+        leagueTable.forEach(team => {
+          let option = document.createElement("option");
+          option.value = team.team;
+          option.text = team.team;
+          select.appendChild(option);
+        });
+      });
+    }
+
+    function setNextMatch() {
+      let matchDay = parseInt(prompt("Enter match day number:"));
+      if (isNaN(matchDay) || matchDay < 1) {
+        alert("Please enter a valid match day number.");
+        return;
+      }
+      let team1 = document.getElementById("team1").value;
+      let team2 = document.getElementById("team2").value;
+      if (team1 === team2) {
+        alert("Teams must be different.");
+        return;
+      }
+      let dateStr = prompt("Enter match date (YYYY-MM-DD):");
+      let date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        alert("Please enter a valid date (YYYY-MM-DD).");
+        return;
+      }
+
+      nextMatch = { matchDay, team1, team2, date: date.getTime() };
+      renderNextMatch();
+      saveState();
+    }
+
+    function playMatch() {
+      if (!nextMatch.date) {
+        alert("Set the next match first!");
+        return;
+      }
+      let won = canPlayMatch();
+      let team1 = leagueTable.find(t => t.team === nextMatch.team1);
+      let team2 = leagueTable.find(t => t.team === nextMatch.team2);
+      team1.points += won ? 3 : 0;
+      matchHistory.push({
+        matchDay: nextMatch.matchDay,
+        team1: nextMatch.team1,
+        team2: nextMatch.team2,
+        result: won ? `${nextMatch.team1} wins` : `${nextMatch.team2} wins`,
+        date: nextMatch.date
+      });
+      previousSquads.push({ matchDay: nextMatch.matchDay, squad: [...squad] });
+      alert(`Match Day ${nextMatch.matchDay}: ${nextMatch.team1} vs ${nextMatch.team2}\nResult: ${won ? nextMatch.team1 : nextMatch.team2} wins (${won ? 3 : 0} points for ${nextMatch.team1})`);
+      nextMatch = { matchDay: nextMatch.matchDay + 1, team1: "", team2: "", date: null };
+      renderNextMatch();
+      renderLeagueTable();
+      renderMatchHistory();
+      renderPreviousSquads();
+      saveState();
+    }
+
+    function addResult() {
+      let team1 = document.getElementById("result-team1").value;
+      let team2 = document.getElementById("result-team2").value;
+      if (team1 === team2) {
+        alert("Teams must be different.");
+        return;
+      }
+      let goals1 = parseInt(document.getElementById("goals1").value);
+      let goals2 = parseInt(document.getElementById("goals2").value);
+      if (isNaN(goals1) || isNaN(goals2) || goals1 < 0 || goals2 < 0) {
+        alert("Please enter valid goal counts.");
+        return;
+      }
+
+      let team1Data = leagueTable.find(t => t.team === team1);
+      let team2Data = leagueTable.find(t => t.team === team2);
+      let resultText;
+      if (goals1 > goals2) {
+        team1Data.points += 3;
+        resultText = `${team1} wins ${goals1}-${goals2}`;
+      } else if (goals2 > goals1) {
+        team2Data.points += 3;
+        resultText = `${team2} wins ${goals2}-${goals1}`;
+      } else {
+        team1Data.points += 1;
+        team2Data.points += 1;
+        resultText = `Draw ${goals1}-${goals2}`;
+      }
+
+      matchHistory.push({
+        matchDay: matchHistory.length + 1,
+        team1: team1,
+        team2: team2,
+        result: resultText,
+        date: new Date().getTime()
+      });
+      renderLeagueTable();
+      renderMatchHistory();
+      saveState();
+    }
+
+    function renderNextMatch() {
+      let details = document.getElementById("match-details");
+      if (nextMatch.date) {
+        let date = new Date(nextMatch.date);
+        details.innerText = `Match Day ${nextMatch.matchDay}: ${nextMatch.team1} vs ${nextMatch.team2} on ${date.toLocaleDateString()}`;
+        details.innerText += canPlayMatch() ? " (Ready to play)" : " (Squad incomplete)";
+      } else {
+        details.innerText = "-";
+      }
+    }
+
+    function canPlayMatch() {
+      return squad.every(player => player !== "-");
+    }
+
+    function updateSquadAndBench() {
+      let minQuality = leagues[currentLeague - 1].minQuality;
+      let eligiblePlayers = activities.filter(a => a.count >= nextMatch.matchDay && a.quality >= minQuality);
+      squad = Array(11).fill("-");
+      bench = [];
+
+      eligiblePlayers.slice(0, 11).forEach((activity, index) => {
+        squad[index] = activity.name;
+        activity.squadPosition = index;
+      });
+
+      eligiblePlayers.slice(11).forEach(activity => {
+        bench.push(activity.name);
+        activity.squadPosition = -1;
+      });
+
+      activities.forEach(activity => {
+        if (!eligiblePlayers.includes(activity)) {
+          activity.squadPosition = -1;
+        }
+      });
+
+      renderSquad();
+      renderBench();
+    }
+
+    function renderSquad() {
+      let squadList = document.getElementById("squad-list");
+      squadList.innerHTML = "";
+      squad.forEach((activity, index) => {
+        let li = document.createElement("li");
+        li.innerText = `${index + 1}. ${squadPositions[index]}: ${activity}`;
+        squadList.appendChild(li);
+      });
+    }
+
+    function renderBench() {
+      let benchList = document.getElementById("bench-list");
+      benchList.innerHTML = "";
+      bench.forEach((activity, index) => {
+        let li = document.createElement("li");
+        li.innerText = `${index + 1}. ${activity}`;
+        benchList.appendChild(li);
+      });
+    }
+
+    function renderLeagueTable() {
+      let tableBody = document.getElementById("table-body");
+      tableBody.innerHTML = "";
+      leagueTable.sort((a, b) => b.points - a.points);
+      leagueTable.forEach((team, index) => {
+        let tr = document.createElement("tr");
+        tr.className = team.team === "FC Europa PL" ? "europa" : "";
+        let tdRank = document.createElement("td");
+        tdRank.innerText = index + 1;
+        let tdTeam = document.createElement("td");
+        tdTeam.innerText = team.team;
+        let tdPoints = document.createElement("td");
+        let adjuster = document.createElement("div");
+        adjuster.className = "points-adjuster";
+        let minusButton = document.createElement("button");
+        minusButton.innerText = "-";
+        minusButton.onclick = () => adjustPoints(team, -1);
+        let pointsSpan = document.createElement("span");
+        pointsSpan.innerText = team.points;
+        let plusButton = document.createElement("button");
+        plusButton.innerText = "+";
+        plusButton.onclick = () => adjustPoints(team, 1);
+        adjuster.appendChild(minusButton);
+        adjuster.appendChild(pointsSpan);
+        adjuster.appendChild(plusButton);
+        tdPoints.appendChild(adjuster);
+        tr.appendChild(tdRank);
+        tr.appendChild(tdTeam);
+        tr.appendChild(tdPoints);
+        tableBody.appendChild(tr);
+      });
+      populateTeamDropdowns();
+    }
+
+    function adjustPoints(team, delta) {
+      team.points = Math.max(0, team.points + delta);
+      renderLeagueTable();
+      saveState();
+    }
+
+    function addTeamToTable() {
+      let teamName = prompt("Enter team name:");
+      if (!teamName || leagueTable.some(t => t.team === teamName)) return;
+      leagueTable.push({ team: teamName, points: 0 }); // Default to 0 points
+      renderLeagueTable();
+      saveState();
+    }
+
+    function renderMatchHistory() {
+      let historyList = document.getElementById("match-history-list");
+      historyList.innerHTML = "";
+      matchHistory.forEach(match => {
+        let li = document.createElement("li");
+        let date = new Date(match.date);
+        li.innerText = `Match Day ${match.matchDay}: ${match.team1} vs ${match.team2} - ${match.result} (${date.toLocaleDateString()})`;
+        historyList.appendChild(li);
+      });
+    }
+
+    function renderPreviousSquads() {
+      let squadsList = document.getElementById("previous-squads-list");
+      squadsList.innerHTML = "";
+      previousSquads.forEach(entry => {
+        let li = document.createElement("li");
+        li.innerText = `Match Day ${entry.matchDay}: ${entry.squad.filter(s => s !== "-").join(", ")}`;
+        squadsList.appendChild(li);
+      });
+    }
+    function addLeague() {
+      let newLeagueName = prompt("Enter name for the new top league:");
+      if (!newLeagueName) return;
+
+      let newMinQuality = leagues.length > 0 ? leagues[0].minQuality + 1 : 1;
+      leagues.unshift({ name: newLeagueName, minQuality: newMinQuality });
+      currentLeague += 1;
+
+      document.getElementById("current-league").innerText = leagues[currentLeague - 1].name;
+      updateSquadAndBench();
+      renderLeagueHierarchy();
+      saveState();
+    }
+
+    function renderLeagueHierarchy() {
+      let leagueList = document.getElementById("league-list");
+      leagueList.innerHTML = "";
+      leagues.forEach((league, index) => {
+    let level = index + 1; // Top = 1, bottom = highest number
+    let li = document.createElement("li");
+    li.innerText = `${level}. ${league.name} (Min Quality: ${league.minQuality})`;
+    if (index === currentLeague - 1) {
+      li.className = "current";
+    }
+    leagueList.appendChild(li);
+  });
+    }
+    setInterval(updateActivities, 1000);
+  </script>
+</body>
+</html>

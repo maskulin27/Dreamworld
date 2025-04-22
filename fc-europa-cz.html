@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>FC Europa CZ</title>
+    <style>
+        body { display: flex; }
+        .left-side { flex: 1; padding: 10px; }
+        .right-side { width: 600px; padding: 10px; border-left: 2px solid #ccc; display: flex; flex-direction: column; }
+        .squad-table-container { display: flex; flex: 1; }
+        .squad-container, .table-container { flex: 1; padding: 0 10px; }
+        .timer-container { margin: 10px 0; }
+        button { margin-right: 10px; }
+        .timer { color: #555; margin-left: 10px; }
+        .squad, .completed, .history-list { list-style: none; padding: 0; }
+        .squad li, .completed li, .history-list li { margin: 5px 0; }
+        .next-match, .results, .history { margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+        tr.europa { background-color: #e0f7fa; font-weight: bold; }
+        .points-adjuster { display: inline-flex; align-items: center; }
+        .points-adjuster button { padding: 2px 5px; margin: 0 2px; }
+        .note-field { width: 100%; height: 80px; margin-top: 10px; display: none; }
+    </style>
+    <link rel="manifest" href="/manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+  }
+</script>
+</head>
+<body>
+    <div class="left-side">
+        <h1>FC Europa CZ - Purposeful Action</h1>
+        <button onclick="window.location.href='index.html'">Back to Landing</button>
+        <div>
+            <input type="number" id="timer-minutes" placeholder="Minutes" min="1">
+            <select id="activity-level"></select>
+            <button onclick="startCountdown()">Start Countdown</button>
+            <button onclick="startManualTimer()">Start Manual</button>
+            <button onclick="addNewState()">Add State</button>
+        </div>
+        <div id="timers"></div>
+        <h3>Completed Activities</h3>
+        <ul class="completed" id="completed-list"></ul>
+    </div>
+    <div class="right-side">
+        <div class="next-match" id="next-match">
+            <h2>Next Match</h2>
+            <p id="match-details">-</p>
+            <select id="team1"></select> vs <select id="team2"></select>
+            <button onclick="setNextMatch()">Set Next Match</button>
+            <button onclick="playMatch()">Play Match</button>
+        </div>
+        <div class="results">
+            <h2>Add Result</h2>
+            <select id="result-team1"></select> vs <select id="result-team2"></select>
+            <input type="number" id="goals1" min="0" placeholder="Goals" style="width: 50px;">
+            <input type="number" id="goals2" min="0" placeholder="Goals" style="width: 50px;">
+            <button onclick="addResult()">Add Result</button>
+        </div>
+        <div class="squad-table-container">
+            <div class="squad-container">
+                <h2>Squad</h2>
+                <ul class="squad" id="squad-list">
+                    <li>1. Goalkeeper: -</li>
+                    <li>2. Right Full Back: -</li>
+                    <li>3. Left Full Back: -</li>
+                    <li>4. Center Back: -</li>
+                    <li>5. Center Back: -</li>
+                    <li>6. Defensive Midfielder: -</li>
+                    <li>7. Right Midfielder: -</li>
+                    <li>8. Central Midfielder: -</li>
+                    <li>9. Left Midfielder: -</li>
+                    <li>10. Attacking Midfielder: -</li>
+                    <li>11. Striker: -</li>
+                </ul>
+            </div>
+            <div class="table-container">
+                <h3>League Table</h3>
+                <table id="league-table">
+                    <thead>
+                        <tr><th>Rank</th><th>Team</th><th>Points</th></tr>
+                    </thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+                <button onclick="addTeamToTable()">Add Team</button>
+            </div>
+        </div>
+        <div class="history">
+            <h3>Match History</h3>
+            <ul class="history-list" id="match-history"></ul>
+            <h3>Previous Squads</h3>
+            <ul class="history-list" id="squad-history"></ul>
+        </div>
+    </div>
+
+    <script>
+        let timers = [];
+        let completedActivities = [];
+        let squadPositions = [
+            "Goalkeeper", "Right Full Back", "Left Full Back", "Center Back", "Center Back",
+            "Defensive Midfielder", "Right Midfielder", "Central Midfielder", "Left Midfielder",
+            "Attacking Midfielder", "Striker"
+        ];
+        let squad = Array(11).fill("-");
+        let totalMinutes = 0;
+        let nextMatch = { matchDay: 1, team1: "", team2: "", date: null };
+        let leagueTable = [{ team: "FC Europa CZ", points: 0 }];
+        let matchHistory = [];
+        let squadHistory = [];
+        let activityStates = [
+            "Purposeful Action", "High-Value Task", "Short-Term Activity"
+        ];
+
+        window.onload = function() {
+            loadState();
+            populateActivityDropdown();
+            updateTimers();
+            renderSquad();
+            renderNextMatch();
+            renderLeagueTable();
+            populateTeamDropdowns();
+            renderHistory();
+        };
+
+        function addNewState() {
+            let newState = prompt("Enter new activity state:");
+            if (!newState || activityStates.includes(newState)) return;
+            activityStates.push(newState);
+            populateActivityDropdown();
+            saveState();
+        }
+
+        function populateActivityDropdown() {
+            let select = document.getElementById("activity-level");
+            select.innerHTML = "";
+            activityStates.forEach(state => {
+                let option = document.createElement("option");
+                option.value = state;
+                option.text = state;
+                select.appendChild(option);
+            });
+        }
+
+        function startCountdown() {
+            let minutes = parseInt(document.getElementById("timer-minutes").value);
+            if (isNaN(minutes) || minutes <= 0) return;
+            let level = document.getElementById("activity-level").value;
+            addTimer(minutes * 60, level, true);
+        }
+
+        function startManualTimer() {
+            let level = document.getElementById("activity-level").value;
+            addTimer(0, level, false);
+        }
+
+        function addTimer(seconds, level, isCountdown) {
+            let container = document.createElement("div");
+            container.className = "timer-container";
+
+            let timerText = document.createElement("span");
+            timerText.innerText = `${level}: ${formatTime(seconds)}`;
+
+            let stopButton = isCountdown ? null : document.createElement("button");
+            if (stopButton) {
+                stopButton.innerText = "Stop";
+                stopButton.onclick = () => stopManualTimer(container, level);
+            }
+
+            let noteField = document.createElement("textarea");
+            noteField.className = "note-field";
+            noteField.placeholder = "How did this activity go?";
+
+            container.appendChild(timerText);
+            if (stopButton) container.appendChild(stopButton);
+            container.appendChild(noteField);
+            document.getElementById("timers").appendChild(container);
+
+            let timer = {
+                seconds: seconds,
+                level: level,
+                isCountdown: isCountdown,
+                container: container,
+                timerText: timerText,
+                noteField: noteField,
+                running: true,
+                lastUpdate: Date.now()
+            };
+            timers.push(timer);
+            saveState();
+        }
+
+        function stopManualTimer(container, level) {
+            let timer = timers.find(t => t.container === container);
+            if (timer && timer.running) {
+                timer.running = false;
+                timer.seconds += Math.floor((Date.now() - timer.lastUpdate) / 1000);
+                timer.noteField.style.display = "block";
+                completeActivity(timer.seconds / 60, level, timer.noteField.value);
+                container.remove();
+                timers = timers.filter(t => t !== timer);
+                saveState();
+            }
+        }
+
+        function completeActivity(minutes, level, note) {
+            let activityName = prompt("Enter the activity you completed:");
+            if (!activityName) return;
+            let difficulty = parseInt(prompt("Rate difficulty (1-10):"));
+            if (isNaN(difficulty) || difficulty < 1 || difficulty > 10) return;
+
+            completedActivities.push({ name: activityName, level: level, difficulty: difficulty, minutes: minutes, note: note || "" });
+            totalMinutes += minutes;
+            if (totalMinutes >= 45) {
+                addToSquad(activityName);
+                totalMinutes -= 45;
+            }
+            renderCompletedActivities();
+            saveState();
+        }
+
+        function addToSquad(activityName) {
+            let nextPosition = squad.indexOf("-");
+            if (nextPosition !== -1) {
+                squad[nextPosition] = activityName;
+                renderSquad();
+            }
+        }
+
+        function updateTimers() {
+            let currentTime = Date.now();
+            timers.forEach(timer => {
+                if (!timer.running) return;
+                let elapsed = Math.floor((currentTime - timer.lastUpdate) / 1000);
+                timer.lastUpdate = currentTime;
+
+                if (timer.isCountdown) {
+                    timer.seconds -= elapsed;
+                    if (timer.seconds <= 0) {
+                        timer.running = false;
+                        timer.timerText.innerText = `${timer.level}: Complete`;
+                        timer.noteField.style.display = "block";
+                        completeActivity(timer.seconds / 60 + elapsed / 60, timer.level, timer.noteField.value);
+                        timer.container.remove();
+                    } else {
+                        timer.timerText.innerText = `${timer.level}: ${formatTime(timer.seconds)}`;
+                    }
+                } else {
+                    timer.seconds += elapsed;
+                    timer.timerText.innerText = `${timer.level}: ${formatTime(timer.seconds)}`;
+                }
+            });
+            timers = timers.filter(t => t.running || t.noteField.style.display === "none");
+        }
+
+        function formatTime(seconds) {
+            let mins = Math.floor(seconds / 60);
+            let secs = seconds % 60;
+            return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+        }
+
+        function renderCompletedActivities() {
+            let completedList = document.getElementById("completed-list");
+            completedList.innerHTML = "";
+            completedActivities.forEach(activity => {
+                let li = document.createElement("li");
+                li.innerText = `${activity.name} (${activity.level}, Difficulty: ${activity.difficulty}, ${activity.minutes.toFixed(1)} min${activity.note ? ", Note: " + activity.note : ""})`;
+                completedList.appendChild(li);
+            });
+        }
+
+        function populateTeamDropdowns() {
+            const team1Select = document.getElementById("team1");
+            const team2Select = document.getElementById("team2");
+            const resultTeam1Select = document.getElementById("result-team1");
+            const resultTeam2Select = document.getElementById("result-team2");
+
+            [team1Select, team2Select, resultTeam1Select, resultTeam2Select].forEach(select => {
+                select.innerHTML = "";
+                leagueTable.forEach(team => {
+                    let option = document.createElement("option");
+                    option.value = team.team;
+                    option.text = team.team;
+                    select.appendChild(option);
+                });
+            });
+        }
+
+        function setNextMatch() {
+            let matchDay = parseInt(prompt("Enter match day number:"));
+            if (isNaN(matchDay) || matchDay < 1) return;
+            let team1 = document.getElementById("team1").value;
+            let team2 = document.getElementById("team2").value;
+            if (team1 === team2) return;
+            let dateStr = prompt("Enter match date (YYYY-MM-DD):");
+            let date = new Date(dateStr);
+            if (isNaN(date.getTime())) return;
+
+            nextMatch = { matchDay, team1, team2, date: date.getTime() };
+            renderNextMatch();
+            saveState();
+        }
+
+        function playMatch() {
+            if (!nextMatch.date || !canPlayMatch()) return;
+            let goals1 = parseInt(prompt(`Enter goals for ${nextMatch.team1}:`)) || 0;
+            let goals2 = parseInt(prompt(`Enter goals for ${nextMatch.team2}:`)) || 0;
+            if (goals1 < 0 || goals2 < 0) return;
+
+            let team1 = leagueTable.find(t => t.team === nextMatch.team1);
+            let team2 = leagueTable.find(t => t.team === nextMatch.team2);
+            if (goals1 > goals2) team1.points += 3;
+            else if (goals1 < goals2) team2.points += 3;
+            else { team1.points += 1; team2.points += 1; }
+
+            matchHistory.push({ matchDay: nextMatch.matchDay, team1: nextMatch.team1, team2: nextMatch.team2, goals1, goals2, date: nextMatch.date });
+            squadHistory.push({ matchDay: nextMatch.matchDay, team1: nextMatch.team1, team2: nextMatch.team2, squad: [...squad], date: nextMatch.date });
+            nextMatch = { matchDay: nextMatch.matchDay + 1, team1: "", team2: "", date: null };
+            renderNextMatch();
+            renderLeagueTable();
+            renderHistory();
+            saveState();
+        }
+
+        function addResult() {
+            let team1 = document.getElementById("result-team1").value;
+            let team2 = document.getElementById("result-team2").value;
+            if (team1 === team2) return;
+            let goals1 = parseInt(document.getElementById("goals1").value) || 0;
+            let goals2 = parseInt(document.getElementById("goals2").value) || 0;
+            if (goals1 < 0 || goals2 < 0) return;
+
+            let team1Obj = leagueTable.find(t => t.team === team1);
+            let team2Obj = leagueTable.find(t => t.team === team2);
+            if (goals1 > goals2) team1Obj.points += 3;
+            else if (goals1 < goals2) team2Obj.points += 3;
+            else { team1Obj.points += 1; team2Obj.points += 1; }
+
+            let matchDay = matchHistory.length + 1;
+            matchHistory.push({ matchDay, team1, team2, goals1, goals2, date: new Date().getTime() });
+            renderLeagueTable();
+            renderHistory();
+            saveState();
+        }
+
+        function renderNextMatch() {
+            let details = document.getElementById("match-details");
+            if (nextMatch.date) {
+                let date = new Date(nextMatch.date);
+                details.innerText = `Match Day ${nextMatch.matchDay}: ${nextMatch.team1} vs ${nextMatch.team2} on ${date.toLocaleDateString()}${canPlayMatch() ? " (Ready)" : " (Squad incomplete)"}`;
+            } else {
+                details.innerText = "-";
+            }
+        }
+
+        function canPlayMatch() {
+            return squad.every(player => player !== "-");
+        }
+
+        function renderSquad() {
+            let squadList = document.getElementById("squad-list");
+            squadList.innerHTML = "";
+            squad.forEach((activity, index) => {
+                let li = document.createElement("li");
+                li.innerText = `${index + 1}. ${squadPositions[index]}: ${activity}`;
+                squadList.appendChild(li);
+            });
+        }
+
+        function renderLeagueTable() {
+            let tableBody = document.getElementById("table-body");
+            tableBody.innerHTML = "";
+            leagueTable.sort((a, b) => b.points - a.points);
+            leagueTable.forEach((team, index) => {
+                let tr = document.createElement("tr");
+                tr.className = team.team === "FC Europa CZ" ? "europa" : "";
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${team.team}</td>
+                    <td>
+                        <div class="points-adjuster">
+                            <button onclick="adjustPoints('${team.team}', -1)">-</button>
+                            <span>${team.points}</span>
+                            <button onclick="adjustPoints('${team.team}', 1)">+</button>
+                        </div>
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+            populateTeamDropdowns();
+        }
+
+        function adjustPoints(teamName, delta) {
+            let team = leagueTable.find(t => t.team === teamName);
+            team.points = Math.max(0, team.points + delta);
+            renderLeagueTable();
+            saveState();
+        }
+
+        function addTeamToTable() {
+            let teamName = prompt("Enter team name:");
+            if (!teamName || leagueTable.some(t => t.team === teamName)) return;
+            let points = parseInt(prompt("Enter points for " + teamName + ":"));
+            if (isNaN(points) || points < 0) return;
+            leagueTable.push({ team: teamName, points });
+            renderLeagueTable();
+            saveState();
+        }
+
+        function renderHistory() {
+            let matchHistoryList = document.getElementById("match-history");
+            matchHistoryList.innerHTML = "";
+            matchHistory.forEach(match => {
+                let date = new Date(match.date);
+                let li = document.createElement("li");
+                li.innerText = `Match Day ${match.matchDay}: ${match.team1} ${match.goals1} - ${match.goals2} ${match.team2} (${date.toLocaleDateString()})`;
+                matchHistoryList.appendChild(li);
+            });
+
+            let squadHistoryList = document.getElementById("squad-history");
+            squadHistoryList.innerHTML = "";
+            squadHistory.forEach(entry => {
+                let date = new Date(entry.date);
+                let li = document.createElement("li");
+                li.innerText = `Match Day ${entry.matchDay}: ${entry.team1} vs ${entry.team2} (${date.toLocaleString()}) - Squad: ${entry.squad.filter(p => p !== "-").join(", ")}`;
+                squadHistoryList.appendChild(li);
+            });
+        }
+
+        function saveState() {
+            let state = {
+                timers: timers.map(t => ({
+                    seconds: t.seconds,
+                    level: t.level,
+                    isCountdown: t.isCountdown,
+                    running: t.running,
+                    note: t.noteField.value
+                })),
+                completedActivities: completedActivities,
+                squad: squad,
+                totalMinutes: totalMinutes,
+                nextMatch: nextMatch,
+                leagueTable: leagueTable,
+                matchHistory: matchHistory,
+                squadHistory: squadHistory,
+                activityStates: activityStates
+            };
+            localStorage.setItem("activityTrackerState_CZ", JSON.stringify(state));
+        }
+
+        function loadState() {
+            let savedState = localStorage.getItem("activityTrackerState_CZ");
+            if (savedState) {
+                let state = JSON.parse(savedState);
+                squad = state.squad || Array(11).fill("-");
+                totalMinutes = state.totalMinutes || 0;
+                completedActivities = state.completedActivities || [];
+                nextMatch = state.nextMatch || { matchDay: 1, team1: "", team2: "", date: null };
+                leagueTable = state.leagueTable || [{ team: "FC Europa CZ", points: 0 }];
+                matchHistory = state.matchHistory || [];
+                squadHistory = state.squadHistory || [];
+                activityStates = state.activityStates || ["Purposeful Action", "High-Value Task", "Short-Term Activity"];
+                timers = [];
+
+                (state.timers || []).forEach(savedTimer => {
+                    let container = document.createElement("div");
+                    container.className = "timer-container";
+
+                    let timerText = document.createElement("span");
+                    timerText.innerText = `${savedTimer.level}: ${formatTime(savedTimer.seconds)}`;
+
+                    let stopButton = savedTimer.isCountdown ? null : document.createElement("button");
+                    if (stopButton) {
+                        stopButton.innerText = "Stop";
+                        stopButton.onclick = () => stopManualTimer(container, savedTimer.level);
+                    }
+
+                    let noteField = document.createElement("textarea");
+                    noteField.className = "note-field";
+                    noteField.placeholder = "How did this activity go?";
+                    noteField.value = savedTimer.note || "";
+                    if (!savedTimer.running) noteField.style.display = "block";
+
+                    container.appendChild(timerText);
+                    if (stopButton) container.appendChild(stopButton);
+                    container.appendChild(noteField);
+                    document.getElementById("timers").appendChild(container);
+
+                    timers.push({
+                        seconds: savedTimer.seconds,
+                        level: savedTimer.level,
+                        isCountdown: savedTimer.isCountdown,
+                        running: savedTimer.running,
+                        container: container,
+                        timerText: timerText,
+                        noteField: noteField,
+                        lastUpdate: Date.now()
+                    });
+                });
+                updateTimers();
+                renderSquad();
+                renderCompletedActivities();
+            } else {
+                leagueTable = [{ team: "FC Europa CZ", points: 0 }];
+            }
+        }
+
+        setInterval(updateTimers, 1000);
+    </script>
+</body>
+</html>
